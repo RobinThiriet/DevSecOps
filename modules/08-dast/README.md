@@ -152,8 +152,10 @@ def handle_error(exc):
     return jsonify({"error": "erreur interne"}), 500
 ```
 
-Résultat mesuré sur la branche `solution` : de 13 alertes à 2 avertissements mineurs
+Résultat mesuré sur la branche `solution` : de 13 alertes à 1 avertissement mineur
 (`Non-Storable Content`, conséquence voulue de `Cache-Control: no-store`), 0 échec.
+Sans les directives `form-action` et `base-uri`, ZAP ajoute un second avertissement
+(`CSP: Failure to Define Directive with No Fallback`) : `default-src` ne les couvre pas.
 </details>
 
 ## ✅ Checklist

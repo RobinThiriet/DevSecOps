@@ -86,7 +86,7 @@ Résultats mesurés :
 | Hadolint | 7 | 0 (1 exception justifiée) |
 | Checkov (échecs) | 59 | 0 (4 exceptions justifiées) |
 | zizmor | 18 | 0 |
-| ZAP baseline | 13 alertes | 2 avertissements mineurs |
+| ZAP baseline | 13 alertes | 1 avertissement mineur |
 
 > 💡 Ne regarde la solution qu'**après** avoir terminé ta propre version : l'intérêt du
 > projet est dans les problèmes que tu rencontres en chemin. Compare ensuite tes choix
