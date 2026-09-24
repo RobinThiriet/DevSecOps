@@ -11,7 +11,7 @@ corrige et déploie de façon sécurisée, du premier commit jusqu'au cluster Ku
 ## Démarrage rapide
 
 ```bash
-git clone git@github.com:RobinThiriet/DevOps.git && cd DevOps
+git clone git@github.com:RobinThiriet/DevSecOps.git && cd DevSecOps
 make help            # toutes les commandes
 make run             # lance VulnShop sur http://127.0.0.1:5000
 make scan-all        # lance tous les scanners statiques
