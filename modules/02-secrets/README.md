@@ -139,6 +139,24 @@ est le secret (pour le masquage avec `--redact` et le calcul d'entropie).
 </details>
 
 <details>
+<summary>2.3 — Scan du dépôt de formation</summary>
+
+Gitleaks trouve le mot de passe de la base dans [infra/terraform/main.tf](../../infra/terraform/main.tf)
+(règle `hashicorp-tf-password`), mais **pas** `SECRET_KEY` ni `DB_PASSWORD` dans
+`app/app.py` : ce sont des chaînes courtes et peu aléatoires, et une règle générique qui
+alerterait sur chaque `password = "..."` produirait énormément de faux positifs. Bandit
+(module 03, règle B105) les signale, lui. Encore une fois : plusieurs outils.
+
+Conséquence à retenir : même une fois `main.tf` corrigé, ce mot de passe restera dans
+**l'historique git**, et `make secrets STRICT=1` continuera d'échouer. Deux options :
+réécrire l'historique (impossible à imposer à tous les clones d'un dépôt partagé), ou —
+une fois le secret **révoqué** — déclarer l'alerte comme traitée dans un fichier
+`.gitleaksignore` qui contient son empreinte (`commit:fichier:règle:ligne`, affichée par
+Gitleaks sous `Fingerprint:`), avec un commentaire expliquant pourquoi.
+C'est ce que fait la branche `solution`.
+</details>
+
+<details>
 <summary>2.5 — Secrets via l'environnement</summary>
 
 ```python
