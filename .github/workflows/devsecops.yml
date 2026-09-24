@@ -1,30 +1,20 @@
-# =============================================================================
-#  Pipeline DevSecOps (module 07)
-#
-#  Chaque job appelle une cible du Makefile : c'est EXACTEMENT ce que tu lances
-#  en local. Les résultats (SARIF) remontent dans l'onglet
-#  GitHub > Security > Code scanning.
-#
-#  🎯 Exercices du module 07 :
-#   1. Passer STRICT à "1" pour que les scans deviennent des gates bloquantes.
-#   2. Faire dépendre le job "dast" des jobs de scan statique (needs).
-#   3. Ne lancer le DAST que sur la branche main.
-#  🎯 Exercice du module 09 : figer chaque action sur un SHA de commit.
-# =============================================================================
+# Pipeline DevSecOps — version corrigée (modules 07 et 09)
+#  - gates bloquantes (STRICT=1)
+#  - actions figées par SHA de commit (le commentaire indique la version)
+#  - GITHUB_TOKEN au moindre privilège, identifiants git non persistés
+#  - DAST uniquement après les scans statiques, et seulement sur main
 name: DevSecOps
 
 on:
   push:
-    branches: [main]
+    branches: [main, solution]
   pull_request:
   workflow_dispatch:
 
-# Principe du moindre privilège : le GITHUB_TOKEN ne peut que lire le code...
-permissions:
-  contents: read
+permissions: {}
 
 env:
-  STRICT: "0"   # "1" = une faille trouvée fait échouer le job
+  STRICT: "1"
 
 jobs:
   secrets:
@@ -32,28 +22,32 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write   # ...sauf les jobs qui publient des résultats
+      security-events: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0         # tout l'historique : un secret supprimé reste dans git !
+          fetch-depth: 0
+          persist-credentials: false
       - run: make secrets STRICT=$STRICT
-      - uses: github/codeql-action/upload-sarif@v4
+      - uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         if: always()
         with:
           sarif_file: reports/gitleaks.sarif
           category: gitleaks
 
   sast:
-    name: 🔍 SAST (Semgrep)
+    name: 🔍 SAST (Semgrep + Bandit)
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: make sast STRICT=$STRICT
-      - uses: github/codeql-action/upload-sarif@v4
+      - run: make bandit STRICT=$STRICT
+      - uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         if: always()
         with:
           sarif_file: reports/semgrep.sarif
@@ -66,24 +60,29 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: make sca STRICT=$STRICT
-      - uses: github/codeql-action/upload-sarif@v4
+      - uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         if: always()
         with:
           sarif_file: reports/trivy-fs.sarif
           category: trivy-fs
 
   iac:
-    name: 🏗️ IaC (Checkov)
+    name: 🏗️ IaC (Checkov) + workflows (zizmor)
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: make iac STRICT=$STRICT
-      - uses: github/codeql-action/upload-sarif@v4
+      - run: make ci-audit STRICT=$STRICT
+      - uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         if: always()
         with:
           sarif_file: reports/checkov.sarif
@@ -92,24 +91,34 @@ jobs:
   container:
     name: 🐳 Conteneur (Hadolint + Trivy image + SBOM)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: make lint-docker STRICT=$STRICT
       - run: make image-scan STRICT=$STRICT
       - run: make sbom
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom
           path: reports/sbom.cdx.json
 
   dast:
     name: 🌐 DAST (OWASP ZAP baseline)
+    needs: [secrets, sast, sca, iac, container]
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: make run
       - run: make dast STRICT=$STRICT
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: zap-report

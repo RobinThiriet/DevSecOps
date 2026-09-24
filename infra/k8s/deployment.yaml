@@ -1,11 +1,21 @@
-# VULN-K8S : manifeste Kubernetes volontairement mal configuré (modules 06 et 10).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vulnshop
+  labels:
+    # Pod Security Admission : refuse tout pod qui ne respecte pas le profil "restricted"
+    pod-security.kubernetes.io/enforce: restricted
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: vulnshop
-  namespace: default            # K8S-01 : namespace par défaut
+  namespace: vulnshop
+  annotations:
+    # Exception assumée et tracée : l'app lit SECRET_KEY depuis l'environnement.
+    checkov.io/skip1: CKV_K8S_35=SECRET_KEY lu via env par l'app, migration vers fichier prévue
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: vulnshop
@@ -14,38 +24,83 @@ spec:
       labels:
         app: vulnshop
     spec:
-      hostNetwork: true         # K8S-02 : partage le réseau du nœud
-      hostPID: true             # K8S-03 : voit les processus du nœud
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: vulnshop
-          image: vulnshop:latest  # K8S-04 : tag "latest", pas de digest
+          # Remplacer par le digest réel de l'image publiée (module 09)
+          image: ghcr.io/robinthiriet/vulnshop@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: Always
           ports:
             - containerPort: 5000
           env:
-            - name: DB_PASSWORD   # K8S-05 : secret en clair (pas de Secret)
-              value: admin123
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vulnshop
+                  key: secret-key
+            - name: DATABASE_PATH
+              value: /data/vulnshop.db
           securityContext:
-            privileged: true      # K8S-06 : conteneur privilégié
-            runAsUser: 0          # K8S-07 : root
-            allowPrivilegeEscalation: true
-          # K8S-08 : pas de resources.limits, pas de probes,
-          #          pas de readOnlyRootFilesystem, capabilities non réduites
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5000
           volumeMounts:
-            - name: host-root
-              mountPath: /host
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
       volumes:
-        - name: host-root         # K8S-09 : monte la racine du nœud
-          hostPath:
-            path: /
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: vulnshop
+  namespace: vulnshop
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: vulnshop
   ports:
-    - port: 5000
+    - port: 80
       targetPort: 5000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vulnshop
+  namespace: vulnshop
+spec:
+  podSelector:
+    matchLabels:
+      app: vulnshop
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - port: 5000
+  egress: []

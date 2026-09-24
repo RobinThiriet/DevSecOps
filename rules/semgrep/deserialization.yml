@@ -1,0 +1,17 @@
+rules:
+  - id: flask-untrusted-deserialization
+    message: >-
+      Des données venant de la requête HTTP sont désérialisées avec pickle/marshal.
+      Un attaquant peut exécuter du code arbitraire. Utilise json à la place.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+    mode: taint
+    pattern-sources:
+      - pattern: flask.request.$ANYTHING
+    pattern-sinks:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+      - pattern: marshal.loads(...)
