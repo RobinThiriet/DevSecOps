@@ -1,0 +1,7 @@
+# Alertes traitées (module 02). Format : <commit>:<fichier>:<règle>:<ligne>
+#
+# Mot de passe factice "admin123" de la base, introduit volontairement dans le code
+# vulnérable du lab (commit initial de main). Supprimé de main.tf sur cette branche,
+# jamais valide sur aucun système : pas de rotation nécessaire. L'historique n'est pas
+# réécrit car `main` doit rester la version vulnérable de référence.
+5bfcd2e2d4e9e31ebd10c5c486b59c179258a287:infra/terraform/main.tf:hashicorp-tf-password:61

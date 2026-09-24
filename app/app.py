@@ -1,29 +1,34 @@
-"""
-VulnShop - application VOLONTAIREMENT VULNÉRABLE.
-
-⚠️  NE JAMAIS DÉPLOYER CETTE APPLICATION SUR UN RÉSEAU PUBLIC.
-Elle sert uniquement de cible d'entraînement pour les modules DevSecOps
-(SAST, SCA, DAST, conteneurs...). Chaque faille est repérée par un
-commentaire "VULN-xx" pour que tu puisses vérifier ce que les outils trouvent
-(et ce qu'ils ratent).
-"""
-import hashlib
-import os
-import pickle
+"""VulnShop — version corrigée (solution du projet final)."""
 import base64
+import binascii
+import ipaddress
+import json
+import logging
+import os
 import sqlite3
-import subprocess
+import subprocess  # nosec B404 -- utilisé sans shell, cf. /ping
+import tempfile
 
 import yaml
-from flask import Flask, request, render_template_string, g, jsonify
+from flask import Flask, g, jsonify, render_template_string, request
+from werkzeug.exceptions import HTTPException
+from werkzeug.security import generate_password_hash
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("vulnshop")
+
+
+def require_env(name):
+    value = os.environ.get(name)
+    if not value:
+        raise RuntimeError(f"Variable d'environnement manquante : {name}")
+    return value
+
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = require_env("SECRET_KEY")
 
-# VULN-01 : secret codé en dur dans le code source
-app.config["SECRET_KEY"] = "s3cr3t-k3y-do-not-commit"
-DB_PASSWORD = "admin123"
-
-DATABASE = os.path.join(os.path.dirname(__file__), "vulnshop.db")
+DATABASE = os.environ.get("DATABASE_PATH", os.path.join(tempfile.gettempdir(), "vulnshop.db"))
 
 
 def get_db():
@@ -48,15 +53,28 @@ def init_db():
             "(id INTEGER PRIMARY KEY, username TEXT, password TEXT, role TEXT)"
         )
         db.execute("DELETE FROM users")
-        # VULN-02 : mots de passe hachés en MD5 (algorithme cassé, sans sel)
-        for name, pwd, role in [("alice", "alice2024", "user"),
-                                ("bob", "b0b", "user"),
-                                ("admin", "SuperAdmin!", "admin")]:
+        for name, role in [("alice", "user"), ("bob", "user"), ("admin", "admin")]:
+            pwd = os.environ.get(f"SEED_PASSWORD_{name.upper()}", os.urandom(16).hex())
             db.execute(
                 "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-                (name, hashlib.md5(pwd.encode()).hexdigest(), role),
+                (name, generate_password_hash(pwd), role),
             )
         db.commit()
+
+
+@app.after_request
+def security_headers(resp):
+    resp.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    resp.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+    resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    resp.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    resp.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+    resp.headers["Cache-Control"] = "no-store"
+    log.info("%s %s %s %s", request.remote_addr, request.method, request.path, resp.status_code)
+    return resp
 
 
 INDEX = """
@@ -79,43 +97,59 @@ def index():
 @app.route("/search")
 def search():
     q = request.args.get("q", "")
-    # VULN-03 : injection SQL (concaténation de chaîne)
-    query = "SELECT id, username, role FROM users WHERE username = '%s'" % q
-    rows = get_db().execute(query).fetchall()
-    return jsonify({"query": query, "results": rows})
+    rows = get_db().execute(
+        "SELECT id, username, role FROM users WHERE username = ?", (q,)
+    ).fetchall()
+    return jsonify({"results": rows})
 
 
 @app.route("/hello")
 def hello():
     name = request.args.get("name", "World")
-    # VULN-04 : XSS réfléchi + SSTI (entrée utilisateur injectée dans le template)
-    return render_template_string("<h2>Bonjour " + name + " !</h2>")
+    return render_template_string("<h2>Bonjour {{ name }} !</h2>", name=name)
 
 
 @app.route("/ping")
 def ping():
     host = request.args.get("host", "127.0.0.1")
-    # VULN-05 : injection de commande (shell=True + entrée non filtrée)
-    out = subprocess.check_output("ping -c 1 " + host, shell=True)
-    return "<pre>" + out.decode() + "</pre>"
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return jsonify({"error": "adresse IP invalide"}), 400
+    out = subprocess.run(  # nosec B603 B607 -- liste d'arguments, IP validée ci-dessus
+        ["ping", "-c", "1", host], capture_output=True, text=True, timeout=5, check=False
+    )
+    return jsonify({"output": out.stdout})
 
 
 @app.route("/import", methods=["POST"])
 def import_config():
-    # VULN-06 : désérialisation YAML non sûre
-    config = yaml.load(request.data, Loader=yaml.Loader)
+    config = yaml.safe_load(request.data)
     return jsonify({"imported": str(config)})
 
 
 @app.route("/session")
 def restore_session():
-    data = request.args.get("data", "")
-    # VULN-07 : désérialisation pickle de données contrôlées par l'utilisateur
-    obj = pickle.loads(base64.b64decode(data))
-    return jsonify({"session": str(obj)})
+    try:
+        obj = json.loads(base64.b64decode(request.args.get("data", ""), validate=True))
+    except (binascii.Error, ValueError):
+        return jsonify({"error": "session invalide"}), 400
+    return jsonify({"session": obj})
 
+
+@app.errorhandler(Exception)
+def handle_error(exc):
+    if isinstance(exc, HTTPException):
+        return exc
+    log.exception("Erreur non gérée")
+    return jsonify({"error": "erreur interne"}), 500
+
+
+init_db()
 
 if __name__ == "__main__":
-    init_db()
-    # VULN-08 : mode debug activé + écoute sur toutes les interfaces
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "5000")),
+        debug=os.environ.get("FLASK_DEBUG") == "1",
+    )
