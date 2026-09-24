@@ -1,0 +1,8 @@
+# Exemple de règle maison : interdire print() dans le code applicatif
+# (on veut utiliser le module logging). Sert de modèle pour le module 03.
+rules:
+  - id: no-print-use-logging
+    message: Utilise le module logging plutôt que print() (traçabilité, niveaux, A09).
+    severity: INFO
+    languages: [python]
+    pattern: print(...)

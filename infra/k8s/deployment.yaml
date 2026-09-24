@@ -1,0 +1,51 @@
+# VULN-K8S : manifeste Kubernetes volontairement mal configuré (modules 06 et 10).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vulnshop
+  namespace: default            # K8S-01 : namespace par défaut
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vulnshop
+  template:
+    metadata:
+      labels:
+        app: vulnshop
+    spec:
+      hostNetwork: true         # K8S-02 : partage le réseau du nœud
+      hostPID: true             # K8S-03 : voit les processus du nœud
+      containers:
+        - name: vulnshop
+          image: vulnshop:latest  # K8S-04 : tag "latest", pas de digest
+          ports:
+            - containerPort: 5000
+          env:
+            - name: DB_PASSWORD   # K8S-05 : secret en clair (pas de Secret)
+              value: admin123
+          securityContext:
+            privileged: true      # K8S-06 : conteneur privilégié
+            runAsUser: 0          # K8S-07 : root
+            allowPrivilegeEscalation: true
+          # K8S-08 : pas de resources.limits, pas de probes,
+          #          pas de readOnlyRootFilesystem, capabilities non réduites
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+      volumes:
+        - name: host-root         # K8S-09 : monte la racine du nœud
+          hostPath:
+            path: /
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vulnshop
+spec:
+  type: NodePort
+  selector:
+    app: vulnshop
+  ports:
+    - port: 5000
+      targetPort: 5000

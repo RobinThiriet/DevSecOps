@@ -1,0 +1,21 @@
+# Module 02 — hooks exécutés AVANT chaque commit (shift-left maximal).
+# Installation :  pipx install pre-commit   (ou pip install --user pre-commit)
+#                 pre-commit install
+# Test manuel :   pre-commit run --all-files
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: detect-private-key
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  # Exercice module 03 : ajoute ici un hook Semgrep ou Bandit
+  # pour bloquer le code vulnérable avant même le commit.

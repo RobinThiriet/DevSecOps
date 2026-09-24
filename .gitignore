@@ -1,0 +1,26 @@
+# Rapports générés par les scans (make ...)
+reports/*
+!reports/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.db
+
+# Secrets locaux — ne jamais commiter
+.env
+*.pem
+*.key
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store

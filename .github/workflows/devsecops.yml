@@ -1,0 +1,118 @@
+# =============================================================================
+#  Pipeline DevSecOps (module 07)
+#
+#  Chaque job appelle une cible du Makefile : c'est EXACTEMENT ce que tu lances
+#  en local. Les résultats (SARIF) remontent dans l'onglet
+#  GitHub > Security > Code scanning.
+#
+#  🎯 Exercices du module 07 :
+#   1. Passer STRICT à "1" pour que les scans deviennent des gates bloquantes.
+#   2. Faire dépendre le job "dast" des jobs de scan statique (needs).
+#   3. Ne lancer le DAST que sur la branche main.
+#  🎯 Exercice du module 09 : figer chaque action sur un SHA de commit.
+# =============================================================================
+name: DevSecOps
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Principe du moindre privilège : le GITHUB_TOKEN ne peut que lire le code...
+permissions:
+  contents: read
+
+env:
+  STRICT: "0"   # "1" = une faille trouvée fait échouer le job
+
+jobs:
+  secrets:
+    name: 🔑 Secrets (Gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # ...sauf les jobs qui publient des résultats
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0         # tout l'historique : un secret supprimé reste dans git !
+      - run: make secrets STRICT=$STRICT
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: reports/gitleaks.sarif
+          category: gitleaks
+
+  sast:
+    name: 🔍 SAST (Semgrep)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: make sast STRICT=$STRICT
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: reports/semgrep.sarif
+          category: semgrep
+
+  sca:
+    name: 📦 SCA (Trivy fs)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: make sca STRICT=$STRICT
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: reports/trivy-fs.sarif
+          category: trivy-fs
+
+  iac:
+    name: 🏗️ IaC (Checkov)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: make iac STRICT=$STRICT
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: reports/checkov.sarif
+          category: checkov
+
+  container:
+    name: 🐳 Conteneur (Hadolint + Trivy image + SBOM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: make lint-docker STRICT=$STRICT
+      - run: make image-scan STRICT=$STRICT
+      - run: make sbom
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: reports/sbom.cdx.json
+
+  dast:
+    name: 🌐 DAST (OWASP ZAP baseline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: make run
+      - run: make dast STRICT=$STRICT
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: zap-report
+          path: reports/zap-report.*
+      - run: make stop
+        if: always()
